@@ -1,33 +1,55 @@
-clear; clc; close all;
+clc; clear; close all;
 
-imgNames = ["baboon","barbara","boat","cameraman","peppers"];
+names = ["baboon","barbara","boat","cameraman","peppers"];
 
-results = table('Size',[numel(imgNames) 7], ...
-    'VariableTypes',["string","double","double","double","double","double","double"], ...
-    'VariableNames',["Image","MSE_deg","PSNR_deg","SSIM_deg","MSE_res","PSNR_res","SSIM_res"]);
+% Ensure output folder exists
+if ~exist("results", "dir")
+    mkdir("results");
+end
 
-for i = 1:numel(imgNames)
-    name = imgNames(i);
+results = cell(length(names), 7);
+results = cell2table(results, "VariableNames", ...
+    ["Image","MSE_Degraded","PSNR_Degraded","SSIM_Degraded","MSE_Restored","PSNR_Restored","SSIM_Restored"]);
 
-    orig = imread("images/original_" + name + ".png");
-    deg  = imread("images/degraded_" + name + ".png");
+for i = 1:length(names)
+    name = names(i);
 
-    if size(orig,3)==3; orig = rgb2gray(orig); end
-    if size(deg,3)==3;  deg  = rgb2gray(deg);  end
+    origPath = "images/original_" + name + ".png";
+    degPath  = "images/degraded_" + name + ".png";
 
-    restored = restore_pipeline(deg);
+    orig = imread(origPath);
+    deg  = imread(degPath);
 
-    [mseD, psnrD, ssimD] = metrics(orig, deg);
-    [mseR, psnrR, ssimR] = metrics(orig, restored);
+    % Convert to grayscale if needed
+    if ndims(orig) == 3, orig = rgb2gray(orig); end
+    if ndims(deg)  == 3, deg  = rgb2gray(deg);  end
 
-    results(i,:) = {name,mseD,psnrD,ssimD,mseR,psnrR,ssimR};
+    origD = im2double(orig);
+    degD  = im2double(deg);
 
-    imwrite(restored,"results/restored_" + name + ".png");
+    % Normalize/clamp
+    origD = min(max(origD, 0), 1);
+    degD  = min(max(degD, 0), 1);
 
-    figure('Name',name);
-    montage({orig,deg,restored},'Size',[1 3]);
+    % If size mismatch, align degraded to original for fair metrics
+    if ~isequal(size(origD), size(degD))
+        degD = imresize(degD, size(origD));
+    end
+
+    restoredD = restore_pipeline(degD);
+    restoredD = min(max(restoredD, 0), 1);
+
+    [mseD, psnrD, ssimD] = metrics(origD, degD);
+    [mseR, psnrR, ssimR] = metrics(origD, restoredD);
+
+    results{i, :} = {name, mseD, psnrD, ssimD, mseR, psnrR, ssimR};
+
+    imwrite(restoredD, "results/restored_" + name + ".png");
+
+    figure("Name", name);
+    montage({origD, degD, restoredD}, "Size", [1 3]);
     title(name + " | Original - Degraded - Restored");
 end
 
 disp(results);
-writetable(results,"results/metrics_table.csv");
+writetable(results, "results/metrics_table.csv");
